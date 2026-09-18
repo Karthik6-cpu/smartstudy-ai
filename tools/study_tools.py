@@ -6,6 +6,8 @@ Implements the 5 requested agent tools:
 3. generate_quiz(topic, number_of_questions, difficulty)
 4. create_study_plan(subjects, available_hours, exam_date)
 5. save_memory(key, value) & retrieve_memory(query)
+
+Plus utility calculators and curriculum lookups.
 """
 
 from typing import Optional, List
@@ -57,6 +59,10 @@ def search_documents(query: str) -> str:
         return f"Error executing document search: {str(e)}"
 
 
+# Alias for backward compatibility
+search_course_notes = search_documents
+
+
 @tool
 def calculate(expression: str) -> str:
     """
@@ -65,6 +71,102 @@ def calculate(expression: str) -> str:
     'sqrt(144) + 12', or complexity math.
     """
     return safe_calculate(expression)
+
+
+@tool
+def calculate_study_schedule(
+    subjects: str,
+    total_weeks: int = 4,
+    daily_hours: float = 3.0
+) -> str:
+    """
+    Calculate study hours, topic distribution, and revision milestones for MCA semester exams.
+    Takes a comma-separated list of subjects, duration in weeks, and daily study hours.
+    """
+    sub_list = [s.strip() for s in subjects.split(",") if s.strip()]
+    if not sub_list:
+        return "Please provide at least one subject."
+
+    total_days = total_weeks * 7
+    total_study_hours = total_days * daily_hours
+    hours_per_subject = round(total_study_hours / len(sub_list), 1)
+    days_per_subject = round(total_days / len(sub_list), 1)
+
+    breakdown = [
+        f"### 📊 Semester Revision Calculation ({total_weeks} Weeks)",
+        f"- **Total Study Days:** {total_days} days",
+        f"- **Daily Commitment:** {daily_hours} hours/day",
+        f"- **Total Available Study Hours:** {total_study_hours:.1f} hours",
+        f"- **Subjects Identified ({len(sub_list)}):** {', '.join(sub_list)}",
+        f"- **Dedicated Time per Subject:** ~{hours_per_subject} hours (~{days_per_subject} days each)",
+        "",
+        "#### Recommended Distribution Strategy:",
+        "- **Phase 1 (First 60% of time):** Core concepts, theory, and pseudocode implementations.",
+        "- **Phase 2 (Next 25% of time):** Solving past university question papers & mock quizzes.",
+        "- **Phase 3 (Final 15% of time):** Rapid formula sheets, summary notes, and active recall.",
+    ]
+    return "\n".join(breakdown)
+
+
+@tool
+def get_mca_subject_overview(subject_name: str) -> str:
+    """
+    Retrieve core MCA curriculum topics, typical syllabus units, and high-yield exam areas.
+    """
+    sub_lower = subject_name.strip().lower()
+
+    curriculum_map = {
+        "dsa": (
+            "Data Structures & Algorithms:\n"
+            "- Unit 1: Arrays, Stacks, Queues, Linked Lists (Singly, Doubly, Circular)\n"
+            "- Unit 2: Trees (BST, AVL, B/B+ Trees, Heap) & Traversals\n"
+            "- Unit 3: Graphs (BFS, DFS, Dijkstra, Prim, Kruskal)\n"
+            "- Unit 4: Sorting & Searching, Time & Space Complexity (Big-O)\n"
+            "- Unit 5: Dynamic Programming & Greedy Algorithms"
+        ),
+        "dbms": (
+            "Database Management Systems:\n"
+            "- Unit 1: ER Modeling, Relational Algebra & Calculus\n"
+            "- Unit 2: SQL, Nested Queries, Triggers & Views\n"
+            "- Unit 3: Normalization (1NF to BCNF)\n"
+            "- Unit 4: Transaction Processing & ACID Properties, Concurrency Control\n"
+            "- Unit 5: Indexing (B-Tree, Hashing) & Crash Recovery"
+        ),
+        "os": (
+            "Operating Systems:\n"
+            "- Unit 1: OS Structures, System Calls, Process vs Thread\n"
+            "- Unit 2: CPU Scheduling (FCFS, SJF, Round Robin, Priority)\n"
+            "- Unit 3: Process Synchronization, Semaphores, Monitors, Classic IPC\n"
+            "- Unit 4: Deadlocks (Detection, Prevention, Banker's Algorithm)\n"
+            "- Unit 5: Memory Management (Paging, Segmentation, Virtual Memory, Page Replacement)"
+        ),
+        "networks": (
+            "Computer Networks:\n"
+            "- Unit 1: OSI 7-Layer & TCP/IP Reference Models, Physical Layer\n"
+            "- Unit 2: Data Link Layer (Framing, Flow Control, Error Detection/CRC, CSMA/CD)\n"
+            "- Unit 3: Network Layer (IPv4/IPv6, Subnetting, Routing: Distance Vector, Link State)\n"
+            "- Unit 4: Transport Layer (TCP 3-Way Handshake, UDP, Congestion Control)\n"
+            "- Unit 5: Application Layer (DNS, HTTP, HTTPS, SMTP, FTP)"
+        ),
+        "se": (
+            "Software Engineering:\n"
+            "- Unit 1: SDLC Models (Waterfall, Spiral, Agile, Scrum)\n"
+            "- Unit 2: Requirements Engineering & SRS Documentation\n"
+            "- Unit 3: Software Design, UML Diagrams, Architectural Patterns\n"
+            "- Unit 4: Software Testing (Black Box, White Box, Integration, Regression)\n"
+            "- Unit 5: CMMI Maturity Levels, Software Quality Assurance & Maintenance"
+        )
+    }
+
+    for key, content in curriculum_map.items():
+        if key in sub_lower:
+            return content
+
+    return (
+        f"General MCA Curriculum for '{subject_name}':\n"
+        "Typically covers fundamental theory, laboratory programming assignments, "
+        "case studies, and university end-semester written exams."
+    )
 
 
 @tool
@@ -152,6 +254,8 @@ ALL_STUDY_TOOLS = [
     create_study_plan,
     save_memory,
     retrieve_memory,
+    calculate_study_schedule,
+    get_mca_subject_overview,
 ]
 
 TOOLS_BY_NAME = {t.name: t for t in ALL_STUDY_TOOLS}

@@ -1,6 +1,7 @@
 """
 FAISS Vector Store and Metadata Persistence for SmartStudy AI.
 Persists FAISS index, embeddings, and chunk metadata across Streamlit sessions.
+Includes resilient pure-numpy fallback if FAISS binary is not available.
 """
 
 import json
@@ -8,7 +9,14 @@ import os
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 import numpy as np
-import faiss
+
+# Safe FAISS import with pure-numpy cosine similarity fallback
+try:
+    import faiss
+    HAS_FAISS = True
+except ImportError:
+    HAS_FAISS = False
+
 
 from config.settings import (
     VECTOR_STORE_DIR,
@@ -24,8 +32,35 @@ class VectorStoreError(Exception):
     pass
 
 
+class NumpyFlatIPIndex:
+    """Pure-Numpy drop-in fallback for FAISS IndexFlatIP (Cosine Similarity)."""
+
+    def __init__(self, dimension: int):
+        self.d = dimension
+        self.vectors = np.empty((0, dimension), dtype=np.float32)
+
+    @property
+    def ntotal(self) -> int:
+        return len(self.vectors)
+
+    def add(self, x: np.ndarray):
+        if len(self.vectors) == 0:
+            self.vectors = x.astype(np.float32)
+        else:
+            self.vectors = np.vstack([self.vectors, x.astype(np.float32)])
+
+    def search(self, q: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+        if len(self.vectors) == 0:
+            return np.array([[]]), np.array([[]])
+        scores = np.dot(self.vectors, q.T).flatten()
+        top_k = min(k, len(scores))
+        indices = np.argsort(scores)[::-1][:top_k]
+        sorted_scores = scores[indices]
+        return np.array([sorted_scores]), np.array([indices])
+
+
 class VectorStore:
-    """Manages FAISS index and chunk metadata with disk persistence."""
+    """Manages vector index and chunk metadata with disk persistence."""
 
     def __init__(
         self,
@@ -39,7 +74,7 @@ class VectorStore:
         self.embeddings_path = self.vector_dir / "embeddings.npy"
         self.dimension = dimension
 
-        self.index: Optional[faiss.IndexFlatIP] = None
+        self.index: Any = None
         self.chunks: List[Dict[str, Any]] = []
         self.documents: Dict[str, Dict[str, Any]] = {}
         self.embeddings: Optional[np.ndarray] = None
@@ -49,8 +84,7 @@ class VectorStore:
     def _load_or_initialize(self):
         """Load persisted index and metadata from disk, or initialize fresh instances."""
         try:
-            if self.index_path.exists() and self.metadata_path.exists():
-                self.index = faiss.read_index(str(self.index_path))
+            if self.metadata_path.exists():
                 with open(self.metadata_path, "r", encoding="utf-8") as f:
                     meta = json.load(f)
                     self.chunks = meta.get("chunks", [])
@@ -59,30 +93,43 @@ class VectorStore:
                 if self.embeddings_path.exists():
                     self.embeddings = np.load(str(self.embeddings_path))
 
+                # Initialize index
+                if HAS_FAISS and self.index_path.exists():
+                    self.index = faiss.read_index(str(self.index_path))
+                else:
+                    self._create_empty_index()
+                    if self.embeddings is not None and len(self.embeddings) > 0:
+                        self.index.add(self.embeddings)
+
                 # Verify integrity
                 if self.index.ntotal != len(self.chunks):
-                    # Stale mismatch: reset to maintain data consistency
                     self._create_empty_index()
             else:
                 self._create_empty_index()
-        except Exception as e:
-            # Fallback to fresh index if disk file was corrupted
+        except Exception:
             self._create_empty_index()
 
     def _create_empty_index(self):
-        """Create a new empty Inner-Product (Cosine Similarity) FAISS index."""
-        self.index = faiss.IndexFlatIP(self.dimension)
+        """Create a new empty Inner-Product FAISS or Numpy index."""
+        if HAS_FAISS:
+            self.index = faiss.IndexFlatIP(self.dimension)
+        else:
+            self.index = NumpyFlatIPIndex(self.dimension)
         self.chunks = []
         self.documents = {}
         self.embeddings = np.empty((0, self.dimension), dtype=np.float32)
 
     def _save_to_disk(self):
-        """Persist FAISS index, metadata, and vectors to disk."""
+        """Persist vector index, metadata, and vectors to disk."""
         try:
             self.vector_dir.mkdir(parents=True, exist_ok=True)
 
-            # 1. Save FAISS index
-            faiss.write_index(self.index, str(self.index_path))
+            # 1. Save FAISS index if available
+            if HAS_FAISS and hasattr(self.index, "ntotal"):
+                try:
+                    faiss.write_index(self.index, str(self.index_path))
+                except Exception:
+                    pass
 
             # 2. Save metadata JSON
             metadata_payload = {
@@ -111,7 +158,6 @@ class VectorStore:
     ):
         """
         Add a document's chunks and vector embeddings to the index and persist.
-        If document already exists, remove prior version first to avoid duplicates.
         """
         if filename in self.documents:
             self.delete_document(filename, delete_pdf_file=False)
@@ -124,10 +170,9 @@ class VectorStore:
                 f"Embedding dimension mismatch: expected {self.dimension}, got {embeddings.shape[1]}"
             )
 
-        # Ensure float32 format
         vectors = embeddings.astype(np.float32)
 
-        # Add to FAISS
+        # Add to index
         self.index.add(vectors)
 
         # Update metadata
@@ -151,9 +196,6 @@ class VectorStore:
     ) -> List[Dict[str, Any]]:
         """
         Perform similarity search using normalized inner product.
-
-        Returns:
-            List of matching chunks with similarity score and metadata.
         """
         if self.index is None or self.index.ntotal == 0:
             return []
@@ -176,13 +218,11 @@ class VectorStore:
 
     def delete_document(self, filename: str, delete_pdf_file: bool = True) -> bool:
         """
-        Remove a document and all its chunks from FAISS and metadata.
-        Rebuilds the index cleanly from remaining embeddings.
+        Remove a document and its chunks from index and metadata.
         """
         if filename not in self.documents:
             return False
 
-        # Find indices of chunks to keep
         keep_indices = []
         new_chunks = []
         for i, chunk in enumerate(self.chunks):
@@ -190,21 +230,22 @@ class VectorStore:
                 keep_indices.append(i)
                 new_chunks.append(chunk)
 
-        # Remove from documents record
         del self.documents[filename]
         self.chunks = new_chunks
 
-        # Rebuild FAISS index
+        # Rebuild index
         if keep_indices and self.embeddings is not None and len(self.embeddings) > 0:
             new_embeddings = self.embeddings[keep_indices]
-            new_index = faiss.IndexFlatIP(self.dimension)
+            if HAS_FAISS:
+                new_index = faiss.IndexFlatIP(self.dimension)
+            else:
+                new_index = NumpyFlatIPIndex(self.dimension)
             new_index.add(new_embeddings)
             self.index = new_index
             self.embeddings = new_embeddings
         else:
             self._create_empty_index()
 
-        # Delete physical PDF if requested
         if delete_pdf_file:
             pdf_path = DOCUMENTS_DIR / filename
             if pdf_path.exists():
@@ -213,7 +254,6 @@ class VectorStore:
                 except Exception:
                     pass
 
-        # Save rebuilt index to disk
         self._save_to_disk()
         return True
 
@@ -228,6 +268,7 @@ class VectorStore:
             "total_chunks": len(self.chunks),
             "faiss_total_vectors": self.index.ntotal if self.index else 0,
             "dimension": self.dimension,
+            "engine": "FAISS Flat-IP" if HAS_FAISS else "Numpy Flat-IP",
         }
 
     def clear_all(self):
@@ -235,7 +276,6 @@ class VectorStore:
         self._create_empty_index()
         self._save_to_disk()
 
-        # Clean documents directory
         if DOCUMENTS_DIR.exists():
             for f in DOCUMENTS_DIR.glob("*.pdf"):
                 try:
