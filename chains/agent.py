@@ -1,0 +1,202 @@
+"""
+Autonomous Study Agent with LangChain Tool Calling.
+Enables local Ollama LLMs to intelligently decide when to invoke:
+- search_documents
+- calculate
+- generate_quiz
+- create_study_plan
+- save_memory / retrieve_memory
+"""
+
+import json
+import re
+from typing import List, Dict, Any, Tuple, Generator, Optional
+from langchain_core.messages import (
+    SystemMessage,
+    HumanMessage,
+    AIMessage,
+    ToolMessage,
+    BaseMessage,
+)
+
+from llm.langchain_client import get_chat_ollama, LangChainOllamaFactory
+from tools.study_tools import ALL_STUDY_TOOLS, TOOLS_BY_NAME
+from config.settings import AGENT_SYSTEM_PROMPT, DEFAULT_MODEL, DEFAULT_OLLAMA_HOST
+
+
+class StudyAgent:
+    """Orchestrates autonomous tool calling and final response generation."""
+
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL,
+        base_url: str = DEFAULT_OLLAMA_HOST,
+        temperature: float = 0.2,
+    ):
+        self.model = model
+        self.base_url = base_url
+        self.temperature = temperature
+
+    def execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
+        """Safely execute a registered tool by name with arguments."""
+        tool = TOOLS_BY_NAME.get(tool_name)
+        if not tool:
+            return f"Error: Tool '{tool_name}' not found."
+        try:
+            result = tool.invoke(tool_args)
+            return str(result)
+        except Exception as e:
+            return f"Error executing tool '{tool_name}': {str(e)}"
+
+    def detect_intent_fallback(self, query: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """
+        Heuristic fallback router if local LLM does not generate structured tool_calls.
+        Ensures guaranteed execution for explicit user commands.
+        """
+        q_lower = query.lower().strip()
+
+        # 1. Math calculation pattern (e.g. 'Calculate 25% of 480', '50 * 12', 'sqrt(144)')
+        calc_match = re.search(r"(?:calculate|compute|what is)\s+([0-9\.\s\+\-\*\/\%\^\(\)]+(?:of\s+[0-9\.]+)?|sqrt\([^)]+\))", q_lower)
+        if calc_match:
+            expr = calc_match.group(1).strip()
+            return "calculate", {"expression": expr}
+        elif any(c in q_lower for c in ["% of", "sqrt("]) and any(char.isdigit() for char in q_lower):
+            # Extract expression
+            return "calculate", {"expression": query}
+
+        # 2. Uploaded notes search pattern (e.g. 'from my uploaded notes', 'in my syllabus')
+        if any(phrase in q_lower for phrase in ["from my uploaded", "in my notes", "from my notes", "uploaded notes", "my uploaded"]):
+            clean_topic = re.sub(r"(from|in)\s+my\s+(uploaded\s+)?(notes|documents|syllabus|files)", "", query, flags=re.IGNORECASE).strip()
+            return "search_documents", {"query": clean_topic or query}
+
+        # 3. Quiz request pattern (e.g. 'Give me 10 MCQs about DBMS joins', 'Quiz on DSA')
+        if any(word in q_lower for word in ["mcqs", "mcq", "quiz", "practice questions"]) and "about" in q_lower or "on" in q_lower:
+            num = 5
+            num_match = re.search(r"(\d+)\s*(?:mcqs|questions|quiz)", q_lower)
+            if num_match:
+                num = int(num_match.group(1))
+            topic_match = re.search(r"(?:about|on|for)\s+(.+)", query, flags=re.IGNORECASE)
+            topic = topic_match.group(1).strip() if topic_match else query
+            return "generate_quiz", {"topic": topic, "number_of_questions": num}
+
+        # 4. Save memory pattern (e.g. 'Remember that my target exam score is 90%')
+        if q_lower.startswith("remember that") or q_lower.startswith("remember:"):
+            fact = re.sub(r"^remember\s*(that|:)?\s*", "", query, flags=re.IGNORECASE).strip()
+            # Try to extract key and value
+            if " is " in fact:
+                parts = fact.split(" is ", 1)
+                return "save_memory", {"key": parts[0].strip(), "value": parts[1].strip()}
+            elif "=" in fact:
+                parts = fact.split("=", 1)
+                return "save_memory", {"key": parts[0].strip(), "value": parts[1].strip()}
+            else:
+                return "save_memory", {"key": "student_note", "value": fact}
+
+        # 5. Retrieve memory pattern (e.g. 'What is my target exam score?', 'What do you remember about me?')
+        if any(p in q_lower for p in ["what do you remember", "recall my", "what is my", "what's my"]):
+            search_key = re.sub(r"(what\s+(is|do\s+you\s+remember|are)\s+(my)?|recall\s+my)\s*", "", query, flags=re.IGNORECASE).strip(" ?.")
+            return "retrieve_memory", {"query": search_key or "student"}
+
+        # 6. Study plan pattern
+        if any(p in q_lower for p in ["create a study plan", "study plan for", "revision timetable", "revision schedule"]):
+            return "create_study_plan", {"subjects": query, "available_hours": 3.0, "exam_date": "in 4 weeks"}
+
+        return None
+
+    def run(
+        self,
+        messages: List[Dict[str, str]],
+    ) -> Tuple[Generator[str, None, None], List[Dict[str, Any]]]:
+        """
+        Run agent turn with dynamic tool calling.
+
+        Returns:
+            Tuple of (token_stream_generator, executed_tools_list)
+        """
+        # Connection check
+        is_ok, conn_msg = LangChainOllamaFactory.validate_connection(self.base_url)
+        if not is_ok:
+            def err_gen():
+                yield f"⚠️ **Ollama is offline:**\n\n{conn_msg}"
+            return err_gen(), []
+
+        # Convert dict messages to LangChain BaseMessage instances
+        lc_messages: List[BaseMessage] = [SystemMessage(content=AGENT_SYSTEM_PROMPT)]
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role == "user":
+                lc_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_messages.append(AIMessage(content=content))
+
+        executed_tools = []
+        latest_user_query = messages[-1].get("content", "") if messages else ""
+
+        try:
+            llm = get_chat_ollama(
+                model=self.model,
+                base_url=self.base_url,
+                temperature=self.temperature,
+            )
+
+            # Bind tools to model
+            llm_with_tools = llm.bind_tools(ALL_STUDY_TOOLS)
+
+            # 1. Initial invocation to check if LLM decides to call tools
+            initial_ai_msg = llm_with_tools.invoke(lc_messages)
+            tool_calls = getattr(initial_ai_msg, "tool_calls", [])
+
+            # If model didn't return structured tool_calls, check intent heuristic
+            if not tool_calls:
+                fallback_intent = self.detect_intent_fallback(latest_user_query)
+                if fallback_intent:
+                    t_name, t_args = fallback_intent
+                    tool_calls = [{"name": t_name, "args": t_args, "id": f"call_{t_name}"}]
+
+            # If tools were invoked
+            if tool_calls:
+                lc_messages.append(initial_ai_msg)
+
+                for tcall in tool_calls:
+                    tname = tcall.get("name")
+                    targs = tcall.get("args", {})
+                    tid = tcall.get("id", f"call_{tname}")
+
+                    tool_result = self.execute_tool(tname, targs)
+                    executed_tools.append({
+                        "tool": tname,
+                        "args": targs,
+                        "result": tool_result,
+                    })
+
+                    tool_msg = ToolMessage(
+                        content=tool_result,
+                        tool_call_id=tid,
+                        name=tname,
+                    )
+                    lc_messages.append(tool_msg)
+
+                # Final synthesis stream
+                def stream_after_tools():
+                    for chunk in llm.stream(lc_messages):
+                        yield chunk.content
+
+                return stream_after_tools(), executed_tools
+
+            else:
+                # No tool called: direct answer stream
+                def stream_direct():
+                    if hasattr(initial_ai_msg, "content") and initial_ai_msg.content:
+                        yield initial_ai_msg.content
+                    else:
+                        for chunk in llm.stream(lc_messages):
+                            yield chunk.content
+
+                return stream_direct(), []
+
+        except Exception as e:
+            # Fallback error generator
+            def exc_gen():
+                yield f"\n\n❌ **Agent Execution Error:** `{str(e)}`"
+            return exc_gen(), executed_tools
