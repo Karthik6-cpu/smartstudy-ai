@@ -1,0 +1,101 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R] /Count 3 >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+6 0 obj
+<< /Length 601 >>
+stream
+BT
+/F1 12 Tf
+50 720 Td
+14 TL
+(MCA Department - Master of Computer Applications) '
+(Course: Advanced Software Engineering \(Unit 4: Quality & Process Models\)) '
+() '
+(Topic: Capability Maturity Model Integration \(CMMI\)) '
+() '
+(Overview:) '
+(CMMI is a process level improvement training and appraisal program developed by Carnegie Mellon University.) '
+(It provides organizations with the essential elements of effective processes that ultimately improve their performance.) '
+(CMMI models provide guidance for developing or improving processes that meet the business goals of an organization.) '
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << /Font << /F1 4 0 R >> >> >>
+endobj
+8 0 obj
+<< /Length 1015 >>
+stream
+BT
+/F1 12 Tf
+50 720 Td
+14 TL
+(CMMI Maturity Levels:) '
+() '
+(Level 1 - Initial:) '
+(Processes are unpredictable, poorly controlled, and reactive. Work gets completed, but it frequently exceeds budget and schedule.) '
+() '
+(Level 2 - Managed:) '
+(Processes are planned, performed, measured, and controlled at the project level. Requirements are managed, and processes are verified against project plans.) '
+() '
+(Level 3 - Defined:) '
+(Processes are well characterized and understood, and are described in standards, procedures, tools, and methods. The organization's set of standard processes is established.) '
+() '
+(Level 4 - Quantitatively Managed:) '
+(The organization and projects establish quantitative objectives for quality and process performance and use them as criteria in managing processes.) '
+() '
+(Level 5 - Optimizing:) '
+(Continual process improvement based on a quantitative understanding of business objectives and performance needs. Focus is on innovation and technological transformation.) '
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 8 0 R /Resources << /Font << /F1 4 0 R >> >> >>
+endobj
+10 0 obj
+<< /Length 595 >>
+stream
+BT
+/F1 12 Tf
+50 720 Td
+14 TL
+(Differences between CMMI Staged vs Continuous Representations:) '
+() '
+(1. Staged Representation:) '
+(- Uses predefined sets of process areas to define an improvement path characterized by 5 maturity levels.) '
+(- Provides a proven sequence of improvements, each serving as a foundation for the next.) '
+() '
+(2. Continuous Representation:) '
+(- Enables an organization to select a specific process area and improve processes related to it.) '
+(- Uses 4 capability levels \(Incomplete, Performed, Managed, Defined\) to measure individual process improvements.) '
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 10 0 R /Resources << /Font << /F1 4 0 R >> >> >>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000000 00000 n 
+0000000127 00000 n 
+0000000849 00000 n 
+0000000197 00000 n 
+0000002042 00000 n 
+0000000975 00000 n 
+0000002815 00000 n 
+0000002168 00000 n 
+trailer
+<< /Size 11 /Root 1 0 R >>
+startxref
+2942
+%%EOF
