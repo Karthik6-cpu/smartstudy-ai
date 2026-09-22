@@ -54,6 +54,7 @@ PAGE_PLANNER = "📅 Study Planner"
 PAGE_PROGRESS = "📊 Progress"
 PAGE_MEMORY = "🧠 Memory"
 PAGE_SETTINGS = "⚙️ Settings"
+PAGE_STATUS = "🖥️ Status"
 
 PAGES = [
     PAGE_DASHBOARD,

@@ -63,7 +63,14 @@ from tools.safe_calculator import safe_calculate
 
 
 def test_calculator_arithmetic_unchanged():
-    """Verify calculator and natural-language arithmetic from previous turn remain 100% functional."""
+    """Verify calculator and natural-language arithmetic remain 100% functional."""
+    # Word arithmetic: two plus two = 4
+    res0 = safe_calculate("two plus two")
+    assert "4" in res0, f"Expected 4 in {res0}"
+
+    res0b = safe_calculate("what is twenty five multiplied by four")
+    assert "100" in res0b, f"Expected 100 in {res0b}"
+
     # Percentage: 25% of 480 = 120
     res1 = safe_calculate("25% of 480")
     assert "120" in res1, f"Expected 120 in {res1}"

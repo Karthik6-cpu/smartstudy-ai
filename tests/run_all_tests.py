@@ -69,6 +69,17 @@ from tests.test_core_features import (
     test_explainable_recommendation_engine,
     test_vector_store_delete_removes_all_vectors,
 )
+from tests.test_auth import TestAuthManager
+import unittest
+
+
+def test_authentication_system():
+    """Run all authentication and user management unit tests."""
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestAuthManager)
+    runner = unittest.TextTestRunner(verbosity=0)
+    result = runner.run(suite)
+    assert result.wasSuccessful(), f"Auth tests failed with {len(result.errors)} errors, {len(result.failures)} failures"
+
 
 
 def run_test_module(module_name: str, test_functions: list) -> tuple[int, int]:
@@ -145,6 +156,9 @@ def main():
             test_flashcard_sm2_spaced_repetition,
             test_explainable_recommendation_engine,
             test_vector_store_delete_removes_all_vectors,
+        ]),
+        ("8. User Authentication & PBKDF2 Security", [
+            test_authentication_system,
         ]),
     ]
 

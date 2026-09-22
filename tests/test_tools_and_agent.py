@@ -41,6 +41,16 @@ def test_safe_calculator():
     r1 = safe_calculate("5 + 3 * 2")
     assert r1 == "Result: 11", f"Expected 11, got {r1}"
 
+    # 1b. Word-based Arithmetic (e.g. 'two plus two')
+    r1b = safe_calculate("two plus two")
+    assert r1b == "Result: 4", f"Expected 4, got {r1b}"
+
+    r1c = safe_calculate("what is twenty five multiplied by four")
+    assert r1c == "Result: 100", f"Expected 100, got {r1c}"
+
+    r1d = safe_calculate("square root of sixteen")
+    assert r1d == "Result: 4", f"Expected 4, got {r1d}"
+
     # 2. Percentage calculation
     r2 = safe_calculate("25% of 480")
     assert r2 == "Result: 120", f"Expected 120, got {r2}"
@@ -135,6 +145,15 @@ def test_agent_intent_fallback():
     intent1 = agent.detect_intent_fallback("Calculate 25% of 480.")
     assert intent1 is not None
     assert intent1[0] == "calculate"
+
+    # 1b. Natural language word math query
+    intent1b = agent.detect_intent_fallback("two plus two")
+    assert intent1b is not None
+    assert intent1b[0] == "calculate"
+
+    intent1c = agent.detect_intent_fallback("what is two plus two?")
+    assert intent1c is not None
+    assert intent1c[0] == "calculate"
 
     # 2. Uploaded notes search query
     intent2 = agent.detect_intent_fallback("Explain CMMI from my uploaded Software Engineering notes.")

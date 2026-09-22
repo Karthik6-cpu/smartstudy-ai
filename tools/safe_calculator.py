@@ -48,23 +48,119 @@ class CalculatorSecurityError(Exception):
     pass
 
 
+NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
+    "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+    "eighty": 80, "ninety": 90, "hundred": 100, "thousand": 1000,
+    "million": 1000000, "billion": 1000000000,
+}
+
+UNITS_TEENS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19,
+}
+
+TENS = {
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+
+SCALES = {
+    "hundred": 100, "thousand": 1000, "million": 1000000, "billion": 1000000000,
+}
+
+
+def words_to_number_sequence(phrase: str) -> str:
+    """Convert English number words ('twenty five', 'one hundred') into numeric digits ('25', '100')."""
+    words = phrase.replace("-", " ").split()
+    tokens = []
+    i = 0
+    while i < len(words):
+        w = words[i].lower()
+        if w in NUMBER_WORDS or (w == "and" and i > 0 and i + 1 < len(words) and words[i+1].lower() in NUMBER_WORDS):
+            num_words = []
+            while i < len(words):
+                curr = words[i].lower()
+                if curr in NUMBER_WORDS:
+                    num_words.append(curr)
+                    i += 1
+                elif curr == "and" and i + 1 < len(words) and words[i+1].lower() in NUMBER_WORDS:
+                    i += 1
+                else:
+                    break
+
+            total = 0
+            current = 0
+            for nw in num_words:
+                if nw in UNITS_TEENS:
+                    current += UNITS_TEENS[nw]
+                elif nw in TENS:
+                    current += TENS[nw]
+                elif nw == "hundred":
+                    current = max(1, current) * 100
+                elif nw in ("thousand", "million", "billion"):
+                    current = max(1, current) * SCALES[nw]
+                    total += current
+                    current = 0
+            total += current
+            tokens.append(str(total))
+        else:
+            tokens.append(words[i])
+            i += 1
+    return " ".join(tokens)
+
+
 def preprocess_expression(expr: str) -> str:
     """
     Clean and normalize user mathematical queries.
-    Handles idioms like '25% of 480', '2^10', etc.
+    Handles number words ('two plus two'), idioms like '25% of 480', '2^10', etc.
     """
     clean = expr.strip().rstrip("?.!;, ")
 
-    # Pattern: X% of Y -> ((X / 100) * Y)
+    # Strip conversational prefixes
     clean = re.sub(
-        r"(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)",
+        r"^(?:what\s+is|calculate|compute|evaluate|solve|how\s+much\s+is|can\s+you\s+calculate|find)\s+",
+        "",
+        clean,
+        flags=re.IGNORECASE
+    ).strip()
+
+    # Convert English number words to digits
+    clean = words_to_number_sequence(clean)
+
+    # Convert word operators to mathematical symbols
+    clean = re.sub(r"\b(?:square\s+root\s+of|sqrt\s+of)\s+([0-9\.\(\)]+)", r"sqrt(\1)", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"([0-9\.\(\)]+)\s+squared\b", r"(\1 ** 2)", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"([0-9\.\(\)]+)\s+cubed\b", r"(\1 ** 3)", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:raised\s+to\s+(?:the\s+)?power\s+(?:of\s+)?|to\s+the\s+power\s+(?:of\s+)?|power)\b", r"**", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:multiplied\s+by|times|into)\b", r"*", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:divided\s+by|divide\s+by|over)\b", r"/", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:modulo|mod)\b", r"%", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:added\s+to|plus|add)\b", r"+", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:minus|subtract)\b", r"-", clean, flags=re.IGNORECASE)
+
+    # Handle "X subtracted from Y" -> "Y - X"
+    sub_from = re.search(r"([0-9\.\s\+\*\/\%\^\(\)]+)\s+subtracted\s+from\s+([0-9\.\s\+\*\/\%\^\(\)]+)", clean, flags=re.IGNORECASE)
+    if sub_from:
+        clean = f"({sub_from.group(2)}) - ({sub_from.group(1)})"
+
+    # Pattern: X% of Y or X percent of Y -> ((X / 100) * Y)
+    clean = re.sub(
+        r"(\d+(?:\.\d+)?)\s*(?:%|percent)\s*of\s*(\d+(?:\.\d+)?)",
         r"((\1 / 100.0) * \2)",
         clean,
         flags=re.IGNORECASE
     )
 
-    # Pattern: X% -> (X / 100.0)
-    clean = re.sub(r"(\d+(?:\.\d+)?)\s*%", r"(\1 / 100.0)", clean)
+    # Pattern: X% or X percent -> (X / 100.0)
+    clean = re.sub(r"(\d+(?:\.\d+)?)\s*(?:%|percent)", r"(\1 / 100.0)", clean, flags=re.IGNORECASE)
 
     # Convert ^ to ** for power
     clean = clean.replace("^", "**")
